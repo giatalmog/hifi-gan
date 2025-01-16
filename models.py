@@ -256,28 +256,67 @@ def feature_loss(fmap_r, fmap_g):
 
     return loss*2
 
+#taken from https://github.com/EmilienDupont/wgan-gp/blob/master/training.py
+def gradient_penalty(self, real_data, generated_data):
+    batch_size = real_data.size()[0]
+
+        # Calculate interpolation
+    alpha = torch.rand(batch_size, 1, 1, 1)
+    alpha = alpha.expand_as(real_data)
+    if self.use_cuda:
+        alpha = alpha.cuda()
+    interpolated = alpha * real_data.data + (1 - alpha) * generated_data.data
+    interpolated = Variable(interpolated, requires_grad=True)
+    if self.use_cuda:
+      interpolated = interpolated.cuda()
+
+    # Calculate probability of interpolated examples
+    prob_interpolated = self.D(interpolated)
+
+    # Calculate gradients of probabilities with respect to examples
+    gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
+                           grad_outputs=torch.ones(prob_interpolated.size()).cuda() if self.use_cuda else torch.ones(
+                               prob_interpolated.size()),
+                           create_graph=True, retain_graph=True)[0]
+
+    # Gradients have shape (batch_size, num_channels, img_width, img_height),
+    # so flatten to easily take norm per example in batch
+    gradients = gradients.view(batch_size, -1)
+    self.losses['gradient_norm'].append(gradients.norm(2, dim=1).mean().data[0])
+
+    # Derivatives of the gradient close to 0 can cause problems because of
+    # the square root, so manually calculate norm and add epsilon
+    gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
+
+    # Return gradient penalty
+    return self.gp_weight * ((gradients_norm - 1) ** 2).mean()
+
 
 def discriminator_loss(disc_real_outputs, disc_generated_outputs):
+    #changelog : converted to wasserstein distance loss, and added gradient penatlty
     loss = 0
+    Lambda = 10 #hyperparameter, subject to change
     r_losses = []
     g_losses = []
     for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
-        r_loss = torch.mean((1-dr)**2)
-        g_loss = torch.mean(dg**2)
-        loss += (r_loss + g_loss)
+        r_loss = torch.mean(dr)
+        g_loss = torch.mean(dg)
+        gp_loss = Lambda*gradient_penalty(dr, dg)
+        loss += (r_loss - g_loss) + gp_loss
         r_losses.append(r_loss.item())
         g_losses.append(g_loss.item())
 
-    return loss, r_losses, g_losses
+    return loss,
 
 
 def generator_loss(disc_outputs):
+  #changelog : converted to wasserstein distance loss
     loss = 0
     gen_losses = []
     for dg in disc_outputs:
-        l = torch.mean((1-dg)**2)
+        l = -torch.mean(dg)
         gen_losses.append(l)
         loss += l
 
-    return loss, gen_losses
+    return loss
 
