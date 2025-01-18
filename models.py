@@ -306,7 +306,7 @@ def discriminator_loss(disc_real_outputs, disc_generated_outputs):
         r_losses.append(r_loss.item())
         g_losses.append(g_loss.item())
 
-    return loss,
+    return loss
 
 
 def generator_loss(disc_outputs):
